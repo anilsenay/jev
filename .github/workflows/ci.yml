@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # "1.22" is the floor declared in go.mod, so it is the version that
+        # decides whether the module's own claim holds. "stable" catches what
+        # the current toolchain reports.
+        go: ["1.22", "stable"]
+    name: test (go ${{ matrix.go }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          # The module has no dependencies, so go.mod is the only cache key.
+          cache-dependency-path: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        # -coverpkg spans both packages, so jevtest is credited for the
+        # exercise it gets from the main package's tests.
+        run: go test -race -coverpkg=./... -coverprofile=coverage.out ./...
+
+      - name: Coverage
+        run: go tool cover -func=coverage.out | tail -1
