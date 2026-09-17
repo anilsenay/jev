@@ -68,6 +68,121 @@ thresholds are policy and live in your code.
 probability that the answer is right — use `Probs[Value]` (or `P`) for that. A noul carries no
 separate confidence; its probability is the signal.
 
+### Noul — is this true?
+
+A yes/no judgment where the probability itself is the signal. Describe both ends when the boundary
+is subtle; one noul per label when several labels can apply at once.
+
+```go
+spam := jev.Noul("Is this review spam or advertising?", jev.NoulCriteria{
+	True:  "promotes an unrelated product, or links to another site",
+	False: "a genuine opinion about the product",
+})
+
+ans, err := jev.Ask(ctx, client, review, spam) // jev.NoulAnswer
+if err != nil {
+	return err
+}
+
+switch yes, sure := ans.Sure(0.9); {
+case sure && yes:
+	return hide(review)      // ans.P == 0.99 for the advertising example below
+case sure:
+	return publish(review)
+default:
+	return queueForModeration(review, ans.P)
+}
+```
+
+```text
+state: "BEST DEAL EVER!!! visit cheap-watches-online.example for 90% off luxury watches"
+→ P = 0.99   Sure(0.9) = true, true
+```
+
+`Sure(t)` answers in both directions: `(true, true)` when `P >= t`, `(false, true)` when `1-P >= t`,
+and `(false, false)` in the uncertain middle. Use a threshold above 0.5.
+
+### Choice — which one of these?
+
+One option out of a set you define, returned as **your own enum**. The model cannot answer outside
+the set, so include a catch-all when the list might not cover every input.
+
+```go
+type Team string
+
+const (
+	Billing   Team = "billing"
+	Shipping  Team = "shipping"
+	Technical Team = "technical"
+	Other     Team = "other"
+)
+
+route := jev.Choice("Which team should handle this ticket?",
+	jev.Opt(Billing, "Charges, invoices, refunds, subscriptions"),
+	jev.Opt(Shipping, "Delivery status, delays, lost packages"),
+	jev.Opt(Technical, "Bugs, outages, integrations"),
+	jev.Opt(Other, nil), // nil when the name speaks for itself
+)
+
+ans, err := jev.Ask(ctx, client, ticket, route) // jev.ChoiceAnswer[Team]
+if err != nil {
+	return err
+}
+
+team, sure := ans.Sure(0.8) // team is a Team, checked at compile time
+if !sure {
+	return escalate(ticket, ans.Ranked()) // options, most probable first
+}
+return assign(ticket, team)
+```
+
+```text
+state: "I was charged twice for order A-104 last Friday. Please refund the duplicate."
+→ Value = billing   Confidence = 1.00
+  Probs  = map[billing:1 other:0 shipping:0 technical:0]
+  Ranked = [billing other shipping technical]
+```
+
+`jev.OneOf("Which team?", Billing, Shipping, Technical, Other)` is the same question without
+descriptions. `Probs` always holds every option, including the zero ones.
+
+### Score — where on this scale?
+
+A position along ordered levels, lowest first. The answer is probability-weighted, so it can land
+*between* two levels — which is information, not noise.
+
+```go
+severity := jev.Score("How severe is the reported issue?",
+	"Cosmetic; no impact to functionality",
+	"Broken or degraded feature, but a workaround exists",
+	"Blocking issue; no workaround exists",
+)
+
+ans, err := jev.Ask(ctx, client, report, severity) // jev.ScoreAnswer
+if err != nil {
+	return err
+}
+
+level, description := ans.Nearest()
+log.Printf("severity %.2f — nearest level %d: %s", ans.Value, level, jev.Text(description))
+
+if ans.Value >= 1.5 || ans.Probs[2] > 0.4 { // thresholds are yours
+	return page(onCall)
+}
+```
+
+```text
+state: "The export button crashes the settings page in Safari. Works in Chrome,
+        but some customers only use Safari."
+→ Value = 1.47   Confidence = 0.30
+  Probs = [0 0.53 0.47]
+  Nearest = 1, "Broken or degraded feature, but a workaround exists"
+```
+
+That answer sits almost exactly between "has a workaround" and "blocking", and the low `Confidence`
+says so. Rounding it to a single level would throw that away; thresholding `Value` or reading
+`Probs` directly keeps it. Scores need at least two levels, and the API accepts at most ten.
+
 ## Questions can carry structure
 
 `instructions`, choice option descriptions, score levels and noul criteria are all `jev.Content`:
