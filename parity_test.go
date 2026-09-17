@@ -284,3 +284,72 @@ func TestDefaultsMatchOfficialSDKs(t *testing.T) {
 		t.Errorf("base URL %q model %q", jev.DefaultBaseURL, jev.DefaultModel)
 	}
 }
+
+// The escape hatch the official SDKs call "raw question dictionaries": a
+// question this package does not model yet still reaches the API.
+func TestRawQuestion(t *testing.T) {
+	var got []byte
+	c := newClient(t, jev.ProviderFunc(func(_ context.Context, r *jev.Request) (*jev.Response, error) {
+		got, _ = json.Marshal(r)
+		return &jev.Response{Answers: map[string]jev.RawAnswer{
+			"q0": {Type: "rank", Choice: "b"},
+		}}, nil
+	}), jev.WithModel("jev-latest"))
+
+	b := c.Batch("x")
+	h := jev.Add(b, jev.RawQuestion(jev.Spec{
+		Type:         "rank",                          // a kind this package predates
+		Instructions: "Rank these",                    //
+		Criteria:     []jev.Content{"a", "b"},         //
+		Extra:        map[string]any{"beam_width": 4}, // a field it predates too
+	}))
+	if _, err := b.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	want := `{"model":"jev-latest","state":"x","questions":{` +
+		`"q0":{"type":"rank","instructions":"Rank these","criteria":["a","b"],"beam_width":4}}}`
+	if string(got) != want {
+		t.Fatalf("wire format\n got: %s\nwant: %s", got, want)
+	}
+
+	raw, err := h.Get()
+	if err != nil || raw.Type != "rank" || raw.Choice != "b" {
+		t.Fatalf("raw = %+v, err = %v", raw, err)
+	}
+}
+
+func TestSpecExtraMarshalling(t *testing.T) {
+	cases := map[string]struct {
+		spec jev.Spec
+		want string
+	}{
+		"no extra": {
+			jev.Spec{Type: jev.KindNoul, Instructions: "ok?"},
+			`{"type":"noul","instructions":"ok?"}`,
+		},
+		"sorted and appended last": {
+			jev.Spec{Type: jev.KindNoul, Instructions: "ok?", Extra: map[string]any{"z": 1, "a": []int{2}}},
+			`{"type":"noul","instructions":"ok?","a":[2],"z":1}`,
+		},
+		"modelled keys are reserved": {
+			jev.Spec{Type: jev.KindNoul, Instructions: "ok?", Extra: map[string]any{"type": "choice", "criteria": 1}},
+			`{"type":"noul","instructions":"ok?"}`,
+		},
+		"instructions may be omitted": {
+			jev.Spec{Type: jev.KindChoice, Criteria: map[string]jev.Content{"a": nil}},
+			`{"type":"choice","criteria":{"a":null}}`,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := json.Marshal(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("\n got: %s\nwant: %s", got, tc.want)
+			}
+		})
+	}
+}

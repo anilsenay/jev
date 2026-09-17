@@ -205,6 +205,31 @@ jev.Choice("Which department does this product belong to?",
 
 `jev.Text(c)` renders a `Content` for logging: a string as it is, anything else as compact JSON.
 
+## When the API moves first
+
+New API fields and question kinds land before a release of this package does. `RawQuestion` sends a
+`Spec` exactly as given and hands the answer back undecoded, so nothing blocks you in the meantime —
+the counterpart of the official SDKs' raw question dictionaries and `extra_body`.
+
+```go
+q := jev.RawQuestion(jev.Spec{
+	Type:         "rank",                          // a kind this package predates
+	Instructions: "Rank these passages by relevance",
+	Criteria:     []jev.Content{"passage A", "passage B"},
+	Extra:        map[string]any{"beam_width": 4},  // a field it predates too
+})
+
+h := jev.Add(b, q)  // *jev.Handle[jev.RawAnswer]
+if _, err := b.Run(ctx); err != nil {
+	return err
+}
+raw, err := h.Get() // read raw.Choice, raw.Probabilities, raw.Score yourself
+```
+
+Nothing is validated or narrowed here, so reach for a typed constructor whenever one fits. `Extra`
+works on any `Spec`; `type`, `instructions` and `criteria` are reserved and cannot be overridden
+from it.
+
 ## Many questions, one request
 
 Independent questions about the same state should share a batch. They run in parallel on the

@@ -63,6 +63,12 @@
 //		}),
 //	)
 //
+// # When the API moves first
+//
+// [RawQuestion] sends a [Spec] exactly as given and returns the answer
+// undecoded, so a question kind or field that lands before a release of this
+// package does is still reachable. [Spec.Extra] carries unmodelled fields.
+//
 // # Policy stays in your code
 //
 // Low confidence is not an error. Answers carry the full distribution, and the

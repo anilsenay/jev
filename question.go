@@ -46,6 +46,33 @@ func Text(c Content) string {
 	return string(b)
 }
 
+// ---------------------------------------------------------------- raw
+
+type rawQ struct{ raw Spec }
+
+// RawQuestion sends a hand-built [Spec] exactly as given and hands the answer
+// back undecoded. Nothing about it is validated or narrowed.
+//
+// It exists so the API can move ahead of this package: a question kind or field
+// that lands before a release does is still reachable, through [Spec.Extra] for
+// new fields and a new [Kind] for a new type.
+//
+//	q := jev.RawQuestion(jev.Spec{
+//		Type:         jev.KindChoice,
+//		Instructions: "Which team should handle this?",
+//		Criteria:     map[string]jev.Content{"billing": nil, "shipping": nil},
+//		Extra:        map[string]any{"beam_width": 4},
+//	})
+//	h := jev.Add(b, q)     // *Handle[RawAnswer]
+//	raw, err := h.Get()    // read raw.Choice, raw.Probabilities yourself
+//
+// Reach for a typed constructor whenever one fits; this gives up the type
+// safety that is the point of the package.
+func RawQuestion(spec Spec) Question[RawAnswer] { return rawQ{spec} }
+
+func (q rawQ) spec() (Spec, error)                     { return q.raw, nil }
+func (q rawQ) decode(raw RawAnswer) (RawAnswer, error) { return raw, nil }
+
 // ---------------------------------------------------------------- noul
 
 // NoulCriteria describes the two ends of a [Noul]. Either side may be left nil,

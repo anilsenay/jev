@@ -1,8 +1,10 @@
 package jev
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"time"
 )
@@ -39,6 +41,63 @@ type Spec struct {
 	// Criteria is *noulCriteria for noul questions, map[string]Content for
 	// choices (a nil description is sent as null) and []Content for scores.
 	Criteria any `json:"criteria,omitempty"`
+	// Extra carries question fields this package does not model, for API
+	// features that land before a release does. Its entries are marshalled
+	// alongside the three above, sorted by key; "type", "instructions" and
+	// "criteria" are reserved and ignored here. The typed constructors never
+	// set it; see [RawQuestion].
+	Extra map[string]any `json:"-"`
+}
+
+// specWire is Spec without Extra, so MarshalJSON can render the modelled fields
+// in their usual order before appending the rest.
+type specWire struct {
+	Type         Kind    `json:"type"`
+	Instructions Content `json:"instructions,omitempty"`
+	Criteria     any     `json:"criteria,omitempty"`
+}
+
+// MarshalJSON implements [json.Marshaler], merging [Spec.Extra] into the
+// question object.
+func (s Spec) MarshalJSON() ([]byte, error) {
+	base, err := json.Marshal(specWire{s.Type, s.Instructions, s.Criteria})
+	if err != nil {
+		return nil, err
+	}
+	if len(s.Extra) == 0 {
+		return base, nil
+	}
+	keys := make([]string, 0, len(s.Extra))
+	for k := range s.Extra {
+		switch k {
+		case "type", "instructions", "criteria": // modelled above; never overridden
+		default:
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return base, nil
+	}
+	sort.Strings(keys)
+
+	var b bytes.Buffer
+	b.Write(base[:len(base)-1]) // drop the closing brace
+	for _, k := range keys {
+		key, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		value, err := json.Marshal(s.Extra[k])
+		if err != nil {
+			return nil, fmt.Errorf("jev: encoding extra question field %q: %w", k, err)
+		}
+		b.WriteByte(',')
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
 }
 
 // ChoiceOptions returns the option names of a choice, sorted. It returns nil for
