@@ -1,5 +1,10 @@
 # jev
 
+[![CI](https://github.com/anilsenay/jev/actions/workflows/ci.yml/badge.svg)](https://github.com/anilsenay/jev/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/anilsenay/jev.svg)](https://pkg.go.dev/github.com/anilsenay/jev)
+[![Go](https://img.shields.io/github/go-mod/go-version/anilsenay/jev)](go.mod)
+[![License](https://img.shields.io/github/license/anilsenay/jev)](LICENSE)
+
 Ask **Jev** — the decision model behind [TypeSafe](https://typesafe.ai)'s System One API —
 questions whose answers arrive as your own Go types.
 
