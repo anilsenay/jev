@@ -30,14 +30,15 @@ type Batch struct {
 type Meta struct {
 	Model string
 	Usage Usage
-	// RequestID identifies the request in TypeSafe's logs. Quote it in a bug
-	// report. It is empty when the provider reports none.
+	// RequestID is what TypeSafe support will ask for. It is empty when the
+	// provider reports none.
 	RequestID string
 	Latency   time.Duration
 }
 
-// Batch starts a batch of questions about state. State may be a string or any
-// value that marshals to JSON; named fields let questions refer to parts of it.
+// Batch opens a batch of questions about one state. The state may be plain
+// text or a value that encodes as JSON; give its parts names and a question can
+// point at the one it is about.
 func (c *Client) Batch(state any) *Batch {
 	return &Batch{client: c, state: state, specs: make(map[string]Spec)}
 }

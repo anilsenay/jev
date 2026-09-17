@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// Defaults used when an option is not supplied. They match the official
-// TypeSafe SDKs.
+// What the client falls back to when an option is left out. These values are
+// the ones the official TypeSafe SDKs ship with.
 const (
 	DefaultBaseURL = "https://api.typesafe.ai"
 	DefaultModel   = "jev-latest"
 	DefaultTimeout = 10 * time.Second
 
-	// APIKeyEnv is read when no key is passed with WithAPIKey.
+	// APIKeyEnv holds the key when WithAPIKey is left out.
 	APIKeyEnv = "TYPESAFE_API_KEY"
 	// BaseURLEnv is read when no URL is passed with WithBaseURL.
 	BaseURLEnv = "TYPESAFE_BASE_URL"
@@ -115,8 +115,9 @@ func WithMiddleware(m ...Middleware) Option {
 // WithCache caches responses for identical requests. See [NewMemoryCache].
 func WithCache(cache Cache) Option { return WithMiddleware(CacheMiddleware(cache)) }
 
-// New builds a client. Without [WithProvider] it talks to the TypeSafe API and
-// returns [ErrNoAPIKey] when no key is available.
+// New builds a client. Unless [WithProvider] redirects it, the client talks to
+// the TypeSafe API and needs a key to do so; without one it fails with
+// [ErrNoAPIKey] rather than at the first request.
 //
 // Explicit options win over environment variables, which win over the defaults.
 func New(opts ...Option) (*Client, error) {

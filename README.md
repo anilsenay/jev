@@ -1,10 +1,13 @@
 # jev
 
-Type-safe Go client for [TypeSafe](https://typesafe.ai)'s System One API and its model, **Jev**.
+Ask **Jev** — the decision model behind [TypeSafe](https://typesafe.ai)'s System One API —
+questions whose answers arrive as your own Go types.
 
-Jev answers questions whose possible answers you define up front, with a probability for each.
-This package makes those answers **Go types**: a choice over your own enum returns that enum,
-and invalid questions or answers that don't fit are caught before your code branches on them.
+An LLM hands you prose and leaves the parsing to you. Jev never leaves the set of answers you
+defined, and tells you how probable each one was. This package carries that guarantee into the
+type system rather than stopping at the JSON boundary: a choice over your `Intent` enum yields
+an `Intent`, the compiler checks the `switch` you write on it, and a question that could not
+have been answered is an error before the request is sent rather than a surprise after it.
 
 ```bash
 go get github.com/anilsenay/jev
@@ -51,7 +54,7 @@ default:
 
 | Constructor | Answer | Use for |
 | --- | --- | --- |
-| `jev.Noul(q)` / `jev.Noul(q, jev.NoulCriteria{True, False})` | `NoulAnswer{P}` | whether a condition holds; one per label for multi-label |
+| `jev.Noul(q)` / `jev.Noul(q, jev.NoulCriteria{True, False})` | `NoulAnswer{P}` | a two-outcome question; ask one each when labels overlap |
 | `jev.Choice(q, jev.Opt(v, desc)...)` / `jev.OneOf(q, v...)` | `ChoiceAnswer[T]{Value, Probs, Confidence}` | exactly one of a set you define |
 | `jev.Score(q, levels...)` | `ScoreAnswer{Value, Probs, Levels, Legend, Confidence}` | a degree along ordered levels; can land between them |
 
@@ -70,8 +73,9 @@ separate confidence; its probability is the signal.
 
 ### Noul — is this true?
 
-A yes/no judgment where the probability itself is the signal. Describe both ends when the boundary
-is subtle; one noul per label when several labels can apply at once.
+A two-outcome judgment where the number itself is the answer. Spell out both outcomes when the
+line between them is fine. If two labels could be true of the same input, give each its own noul
+rather than making them compete inside one choice.
 
 ```go
 spam := jev.Noul("Is this review spam or advertising?", jev.NoulCriteria{
@@ -148,8 +152,9 @@ descriptions. `Probs` always holds every option, including the zero ones.
 
 ### Score — where on this scale?
 
-A position along ordered levels, lowest first. The answer is probability-weighted, so it can land
-*between* two levels — which is information, not noise.
+A position on a scale whose points you describe, lowest first. The answer is weighted by
+probability, so it can come to rest short of any single level — and that in-between reading is the
+useful part, not noise to be rounded away.
 
 ```go
 severity := jev.Score("How severe is the reported issue?",
@@ -186,8 +191,9 @@ says so. Rounding it to a single level would throw that away; thresholding `Valu
 ## Questions can carry structure
 
 `instructions`, choice option descriptions, score levels and noul criteria are all `jev.Content`:
-a string, or any value that marshals to a JSON object or array. Use structure when a question has
-several parts, or when the supporting data is already JSON.
+plain text, or anything that encodes as a JSON object or array. Reach for structure when a sentence
+keeps failing to separate two options, or when the material is already JSON and flattening it into
+a sentence would only lose detail.
 
 ```go
 jev.Choice("Which department does this product belong to?",
@@ -297,14 +303,14 @@ if errors.As(err, &apiErr) {
 
 ```go
 client, err := jev.New(
-	jev.WithAPIKey(key),                 // default: $TYPESAFE_API_KEY
-	jev.WithBaseURL(url),                // default: $TYPESAFE_BASE_URL, then https://api.typesafe.ai
-	jev.WithModel("jev-preview"),        // default: $TYPESAFE_DEFAULT_MODEL, then jev-latest
-	jev.WithTimeout(2*time.Second),      // per attempt, via context; default 10s
-	jev.WithRetry(jev.DefaultRetry),     // or WithRetries(n) to change only the count
+	jev.WithAPIKey(key),                 // else $TYPESAFE_API_KEY
+	jev.WithBaseURL(url),                // else $TYPESAFE_BASE_URL, else api.typesafe.ai
+	jev.WithModel("jev-preview"),        // else $TYPESAFE_DEFAULT_MODEL, else jev-latest
+	jev.WithTimeout(2*time.Second),      // bounds one attempt, not the whole call
+	jev.WithRetry(jev.DefaultRetry),     // WithRetries(n) changes only the count
 	jev.WithHeaders(map[string]string{"X-Tenant": "acme"}),
-	jev.WithLogger(slog.Default()),      // one line per request; off by default
-	jev.WithHTTPClient(hc),              // never modified
+	jev.WithLogger(slog.Default()),      // silent unless you pass one
+	jev.WithHTTPClient(hc),              // used as given, never mutated
 	jev.WithCache(jev.NewMemoryCache(10_000)),
 	jev.WithMiddleware(metrics),
 )
@@ -367,11 +373,18 @@ client, _ := jev.New(jev.WithProvider(fake))
 Matchers: `Any`, `Instructions`, `Kind`, `Option`, `State`, `All`, `Not`.
 Answers: `Yes`, `Pick`, `Level`, `Fail`.
 
-## A note on trust
+## What the types do not buy you
 
-Typed output guarantees the *shape* of an answer, not its *truth*. Calibration is a property of
-predictions in aggregate: measure accuracy per confidence band on your own labelled data before
-choosing thresholds for production.
+A `ChoiceAnswer[Intent]` is guaranteed to hold one of your `Intent` values. Nothing here
+guarantees it holds the *right* one. The compiler checks that an answer fits the question it
+came from; whether it is right is an empirical question about your inputs, and the only way to
+settle it is to measure.
+
+So before `Sure(0.9)` is allowed to decide anything expensive, label a few hundred real inputs,
+run them through, and count how often the answers above that line were actually right. If 0.9
+turns out to mean 70% in your domain, the number that needs changing is in your code, and you can
+change it without touching a question or paying for another request. That is the whole reason the
+thresholds live there.
 
 ## License
 

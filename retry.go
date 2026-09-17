@@ -19,8 +19,8 @@ type Retry struct {
 	BackoffInitial time.Duration
 	// BackoffMax caps a single backoff delay.
 	BackoffMax time.Duration
-	// BackoffJitter is the fraction of each delay randomly subtracted, from 0
-	// to 1. It stops parallel callers from retrying in lockstep.
+	// BackoffJitter is how much of each delay is given up to chance, from 0 to
+	// 1. Without it, callers that failed together retry together.
 	BackoffJitter float64
 	// Statuses lists the HTTP status codes to retry. Nil means the default:
 	// 408, 429 and every 5xx.

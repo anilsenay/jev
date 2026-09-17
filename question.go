@@ -23,8 +23,9 @@ const (
 // [Noul], [Choice], [OneOf] or [Score]. Questions are immutable values and are
 // meant to be declared once, typically as package-level variables.
 //
-// The interface is sealed: only this package can implement it, because the API
-// accepts only these kinds.
+// The interface is sealed. Implementing it outside this package would let a
+// question be built that the API has no way to answer, so the compiler stops
+// that; [RawQuestion] is the deliberate way around it.
 type Question[A any] interface {
 	spec() (Spec, error)
 	decode(raw RawAnswer) (A, error)
@@ -75,12 +76,13 @@ func (q rawQ) decode(raw RawAnswer) (RawAnswer, error) { return raw, nil }
 
 // ---------------------------------------------------------------- noul
 
-// NoulCriteria describes the two ends of a [Noul]. Either side may be left nil,
-// and either may be structured [Content] when the boundary is subtle.
+// NoulCriteria spells out the two outcomes. Either side may be left nil, and
+// either may be structured [Content] when one sentence cannot hold them
+// apart.
 type NoulCriteria struct {
-	// True is what a value near 1 means.
+	// True describes the outcome the probability climbs towards.
 	True Content
-	// False is what a value near 0 means.
+	// False describes the outcome it falls towards.
 	False Content
 }
 
@@ -94,14 +96,15 @@ type noulQ struct {
 	criteria     *NoulCriteria
 }
 
-// Noul asks whether a condition holds and answers with the probability that it
-// does. Pass a [NoulCriteria] to describe the two ends; filling them in usually
-// sharpens the boundary. The API needs at least one of instructions and
-// criteria.
+// Noul settles a question that has two outcomes, answering with how likely the
+// affirmative one is. Pass a [NoulCriteria] to spell the outcomes out; doing so
+// is usually what moves a hedged number towards a decisive one. The API wants
+// instructions, criteria, or both.
 //
-// Use one Noul per label when several labels can apply at once. A value near
-// 0.5 means the model finds yes and no about equally likely; it does not mean
-// "medium". Use a [Score] to place something on a spectrum.
+// When several labels can be true at the same time, ask a separate Noul for
+// each rather than forcing a [Choice] between them. And read 0.5 as "the model
+// cannot separate yes from no", not as "somewhere in the middle" — a middle is
+// what a [Score] is for.
 func Noul(instructions Content, criteria ...NoulCriteria) Question[NoulAnswer] {
 	if len(criteria) > 1 {
 		// Reported by spec and by Handle.Get, so that building a question never
@@ -143,8 +146,8 @@ func (q noulQ) decode(raw RawAnswer) (NoulAnswer, error) {
 	return NoulAnswer{P: *raw.Noul}, nil
 }
 
-// NoulAnswer is the probability that the answer is yes. A noul carries no
-// separate confidence: the probability itself is the signal.
+// NoulAnswer is how likely the model finds a yes, from 0 to 1. A noul reports
+// no separate confidence, because this number already is one.
 type NoulAnswer struct {
 	P float64
 }
@@ -171,9 +174,9 @@ type ChoiceOption[T ~string] struct {
 	Description Content
 }
 
-// Opt builds a [ChoiceOption]. T is inferred from value, so passing your own
-// string enum makes the whole choice typed. Pass nil as the description when
-// the option name speaks for itself.
+// Opt builds a [ChoiceOption]. T is inferred from value, so handing it a
+// constant of your own string type is what makes the whole choice typed. A nil
+// description leaves the option to stand on its name.
 func Opt[T ~string](value T, description Content) ChoiceOption[T] {
 	return ChoiceOption[T]{Value: value, Description: description}
 }
@@ -183,15 +186,16 @@ type choiceQ[T ~string] struct {
 	options      []ChoiceOption[T]
 }
 
-// Choice picks exactly one of options and returns the distribution over them.
-// Include a catch-all option when none of the others may fit: the model cannot
-// answer outside the set.
+// Choice settles on exactly one of the options and reports how the probability
+// was spread over all of them. The set is a closed world — there is no answer
+// outside it — so offer somewhere for an input to land that none of the real
+// options describe.
 func Choice[T ~string](instructions Content, options ...ChoiceOption[T]) Question[ChoiceAnswer[T]] {
 	return choiceQ[T]{instructions, append([]ChoiceOption[T](nil), options...)}
 }
 
-// OneOf is [Choice] without descriptions, for options whose names speak for
-// themselves.
+// OneOf is [Choice] with no descriptions at all, for a set of options that
+// need no explaining.
 func OneOf[T ~string](instructions Content, values ...T) Question[ChoiceAnswer[T]] {
 	opts := make([]ChoiceOption[T], len(values))
 	for i, v := range values {
@@ -210,7 +214,8 @@ func (q choiceQ[T]) spec() (Spec, error) {
 		if _, dup := criteria[name]; dup {
 			return Spec{}, invalid("choice %q has duplicate option %q", Text(q.instructions), name)
 		}
-		// A nil description must reach the API as JSON null, not as "".
+		// An option left undescribed is null on the wire; "" would read as a
+		// description that happens to be empty.
 		if s, ok := o.Description.(string); ok && s == "" {
 			criteria[name] = nil
 			continue
@@ -295,9 +300,11 @@ type scoreQ struct {
 	levels       []Content
 }
 
-// Score rates the state against ordered levels, lowest first. Each level should
-// describe a concrete situation, as a string or as structured [Content]. The
-// answer is a probability-weighted position, so it can land between levels.
+// Score places the state on a scale whose points you describe, lowest first.
+// Write each level as a situation someone could recognise, not as a grade: the
+// answer is a probability-weighted position along them, so it may come to rest
+// short of any single level — a reading in its own right, not a rounding
+// error.
 func Score(instructions Content, levels ...Content) Question[ScoreAnswer] {
 	return scoreQ{instructions, append([]Content(nil), levels...)}
 }
@@ -370,7 +377,7 @@ func decodeLegend(raw map[string]json.RawMessage) (map[int]Content, error) {
 	return out, nil
 }
 
-// ScoreAnswer is a probability-weighted position across the levels of a Score.
+// ScoreAnswer is where a [Score] came to rest on its own scale.
 type ScoreAnswer struct {
 	// Value runs from 0 (the first level) to len(Levels)-1.
 	Value float64
@@ -393,8 +400,9 @@ func (a ScoreAnswer) NearestIndex() int {
 	return min(max(int(math.Round(a.Value)), 0), len(a.Levels)-1)
 }
 
-// Nearest returns the index and description of the closest whole level. Use
-// [Text] to render the description when the levels are structured.
+// Nearest rounds to the level the answer sits closest to and returns it with
+// its description. Pass the description through [Text] to print it when the
+// levels are structured.
 func (a ScoreAnswer) Nearest() (int, Content) {
 	if len(a.Levels) == 0 {
 		return 0, nil

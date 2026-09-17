@@ -11,10 +11,11 @@ import (
 
 // Errors raised before a request is sent.
 var (
-	// ErrNoAPIKey means no key was supplied and TYPESAFE_API_KEY was unset.
+	// ErrNoAPIKey means the client had no credential to send: nothing was
+	// passed and TYPESAFE_API_KEY held nothing either.
 	ErrNoAPIKey = errors.New("jev: no API key: set TYPESAFE_API_KEY or use WithAPIKey")
-	// ErrInvalidQuestion means a question was built with invalid arguments,
-	// for example a score with one level. It is detected before any request.
+	// ErrInvalidQuestion means a question could not have been answered as
+	// written, such as a score offering a single level. Nothing is sent.
 	ErrInvalidQuestion = errors.New("jev: invalid question")
 	// ErrMalformedAnswer means the provider returned an answer that does not fit
 	// its question: a missing answer, the wrong kind, or an option that was
@@ -45,7 +46,7 @@ var (
 var (
 	// ErrBadRequest is 400: the API rejected the request.
 	ErrBadRequest = errors.New("jev: bad request")
-	// ErrAuth is 401: the API key is missing, wrong or revoked.
+	// ErrAuth is 401: no key reached the API, or the one that did is not valid.
 	ErrAuth = errors.New("jev: authentication failed")
 	// ErrPermissionDenied is 403: the key is valid but not allowed to do this.
 	ErrPermissionDenied = errors.New("jev: permission denied")
@@ -64,7 +65,8 @@ var (
 )
 
 const (
-	// StatusOverloaded is the non-standard status the API returns when overloaded.
+	// StatusOverloaded is 529, which is not in any RFC; TypeSafe uses it to say
+	// the service is briefly past capacity.
 	StatusOverloaded = 529
 	// maxMessageLength matches the official SDKs' MAX_ERROR_BODY_LENGTH: the
 	// point at which a raw body is truncated inside an error message.
@@ -97,12 +99,13 @@ func (f FieldError) String() string {
 	return strings.Join(path, ".") + ": " + f.Msg
 }
 
-// APIError is a non-2xx response from the API. [errors.Is] matches it against
-// the sentinel for its status.
+// APIError is what the API answered with when it refused. Each status has a
+// sentinel that [errors.Is] recognises, so callers branch on meaning rather
+// than on numbers.
 type APIError struct {
 	// Status is the HTTP status code.
 	Status int
-	// Body is the response body, truncated to a readable length.
+	// Body is what the API wrote back, cut off once it stops being useful.
 	Body string
 	// Header is the response header, for anything this type does not model.
 	Header http.Header
@@ -195,8 +198,9 @@ func (e *APIError) Is(target error) bool {
 	return e.Status >= 500 && target == ErrInternalServer
 }
 
-// Retryable reports whether sending the same request again could succeed. It
-// covers 408, 429 and every 5xx, matching the official SDKs' default policy.
+// Retryable reports whether the failure looks temporary: 408, 429 and any 5xx,
+// the same set the official SDKs retry by default. Everything else describes a
+// request that will be refused the same way however often it is sent.
 func (e *APIError) Retryable() bool {
 	return e.Status == http.StatusRequestTimeout ||
 		e.Status == http.StatusTooManyRequests ||

@@ -1,10 +1,11 @@
-// Package jev is a type-safe Go client for TypeSafe's System One API and its
-// model Jev.
+// Package jev asks Jev, the decision model behind TypeSafe's System One API,
+// questions whose answers arrive as ordinary Go types.
 //
-// Jev reads natural language and structured state like an LLM, but instead of
-// generating text it answers questions whose possible answers you define in
-// advance, with a probability for each. This package turns those questions into
-// Go types, so the answer to a Choice over your own enum comes back as that enum.
+// An LLM hands back prose and leaves the parsing to the caller. Jev never
+// leaves the set of answers the caller defined, and reports how probable each
+// one was. This package carries that guarantee into the type system rather than
+// stopping at the JSON boundary: a [Choice] over a string enum yields that
+// enum, so the compiler checks the switch written on it.
 //
 // # Asking one question
 //
@@ -32,9 +33,9 @@
 //
 // # Asking many questions in one call
 //
-// Independent questions about the same state belong in one [Batch]. They are
-// evaluated in parallel and cost one request. Each [Add] returns a typed
-// [Handle]:
+// Independent questions about the same state belong in one [Batch]: they are
+// answered together, for the price of a single round trip. Each [Add] hands
+// back a typed [Handle]:
 //
 //	b := client.Batch(review)
 //	spam := jev.Add(b, jev.Noul("Is this review spam or advertising?"))
@@ -48,9 +49,9 @@
 // # Questions can carry structure
 //
 // Instructions, option descriptions, score levels and noul criteria are all
-// [Content]: a string, or any value that marshals to JSON. Structure sharpens a
-// boundary the model keeps getting wrong, and lets a taxonomy or a schema be
-// passed through instead of flattened into a sentence:
+// [Content]: plain text, or anything that encodes as a JSON object or array.
+// Reach for structure when a sentence keeps failing to separate two options, or
+// when the material is already JSON and flattening it would only lose detail:
 //
 //	jev.Choice("Which department does this product belong to?",
 //		jev.Opt(Sporting, map[string]any{
@@ -76,8 +77,10 @@
 // reserved for invalid questions, transport and API failures, and answers that
 // do not fit the question.
 //
-// Typed output guarantees the shape of an answer, not its truth. Validate your
-// thresholds on labelled data before trusting them in production.
+// The compiler checks that an answer fits its question, never that it is right.
+// Measure that on labelled inputs of your own and set the thresholds from what
+// you find; a threshold is one number in your code, changed without touching a
+// question or paying for another request.
 //
 // # Configuration
 //
