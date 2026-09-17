@@ -233,6 +233,41 @@ func TestModelsWorksThroughMiddleware(t *testing.T) {
 	}
 }
 
+// An explicit key wins outright: the environment is not consulted, so a client
+// never reaches the API with a key its caller did not choose.
+func TestExplicitAPIKeyDisablesTheEnvFallback(t *testing.T) {
+	t.Setenv(jev.APIKeyEnv, "from-env")
+
+	if _, err := jev.New(jev.WithAPIKey("")); !errors.Is(err, jev.ErrNoAPIKey) {
+		t.Fatalf("empty explicit key: err = %v, want ErrNoAPIKey", err)
+	}
+	if _, err := jev.NewWithKey(" "); !errors.Is(err, jev.ErrNoAPIKey) {
+		t.Fatalf("blank explicit key: err = %v, want ErrNoAPIKey", err)
+	}
+	if _, err := jev.New(); err != nil {
+		t.Fatalf("no option should still read the environment: %v", err)
+	}
+}
+
+func TestNewWithKeySendsTheKey(t *testing.T) {
+	t.Setenv(jev.APIKeyEnv, "from-env")
+	var auth string
+	s := server(t, func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, okBody)
+	})
+	c, err := jev.NewWithKey("explicit", jev.WithBaseURL(s.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jev.Ask(context.Background(), c, "x", spamQ); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer explicit" {
+		t.Fatalf("Authorization = %q", auth)
+	}
+}
+
 func TestDefaultsMatchOfficialSDKs(t *testing.T) {
 	if jev.DefaultTimeout != 10*time.Second {
 		t.Errorf("DefaultTimeout = %v, want 10s", jev.DefaultTimeout)

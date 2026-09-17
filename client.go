@@ -33,6 +33,7 @@ type Client struct {
 
 type config struct {
 	apiKey     string
+	apiKeySet  bool
 	baseURL    string
 	model      string
 	userAgent  string
@@ -48,8 +49,14 @@ type config struct {
 // Option configures a [Client].
 type Option func(*config)
 
-// WithAPIKey sets the API key, overriding TYPESAFE_API_KEY.
-func WithAPIKey(key string) Option { return func(c *config) { c.apiKey = key } }
+// WithAPIKey sets the API key. Once it is given, TYPESAFE_API_KEY is not read
+// at all: passing an empty key returns [ErrNoAPIKey] rather than quietly
+// falling back to whatever the environment happens to hold. This is what the
+// official SDKs do, and it keeps a client from reaching the API with a key its
+// caller never chose.
+func WithAPIKey(key string) Option {
+	return func(c *config) { c.apiKey, c.apiKeySet = key, true }
+}
 
 // WithBaseURL points the HTTP provider at another host, for proxies and tests.
 // It overrides TYPESAFE_BASE_URL.
@@ -131,7 +138,7 @@ func New(opts ...Option) (*Client, error) {
 	base := cfg.provider
 	if base == nil {
 		key := cfg.apiKey
-		if key == "" {
+		if !cfg.apiKeySet {
 			key = os.Getenv(APIKeyEnv)
 		}
 		if strings.TrimSpace(key) == "" {
@@ -161,6 +168,14 @@ func New(opts ...Option) (*Client, error) {
 		p = cfg.middleware[i](p)
 	}
 	return &Client{provider: p, lister: lister, model: cfg.model}, nil
+}
+
+// NewWithKey is [New] with the API key supplied directly, for callers that read
+// their configuration through something other than the process environment.
+//
+//	client, err := jev.NewWithKey(cfg.TypeSafeKey, jev.WithTimeout(5*time.Second))
+func NewWithKey(apiKey string, opts ...Option) (*Client, error) {
+	return New(append([]Option{WithAPIKey(apiKey)}, opts...)...)
 }
 
 func envOr(name, fallback string) string {

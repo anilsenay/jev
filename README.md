@@ -173,6 +173,16 @@ client, err := jev.New(
 Explicit options win over environment variables, which win over the defaults — the same precedence
 as the Python and JavaScript SDKs.
 
+Reading configuration from somewhere other than the process environment needs no ceremony:
+
+```go
+// godotenv, viper, koanf, a secret manager — anything that hands you a string.
+client, err := jev.NewWithKey(cfg.TypeSafeKey, jev.WithTimeout(5*time.Second))
+```
+
+Once `WithAPIKey` (or `NewWithKey`) is given a key, `TYPESAFE_API_KEY` is not read at all, so an
+empty key is `ErrNoAPIKey` rather than a silent fall back to whatever the machine happens to hold.
+
 ### Retries
 
 `DefaultRetry` matches the official SDKs: two retries, 500ms of backoff doubling to 5s with 25%

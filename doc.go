@@ -73,6 +73,17 @@
 // Typed output guarantees the shape of an answer, not its truth. Validate your
 // thresholds on labelled data before trusting them in production.
 //
+// # Configuration
+//
+// [New] reads TYPESAFE_API_KEY, TYPESAFE_BASE_URL and TYPESAFE_DEFAULT_MODEL
+// when the matching option is not given. Callers whose configuration comes from
+// somewhere else pass the key directly:
+//
+//	client, err := jev.NewWithKey(cfg.TypeSafeKey)
+//
+// An explicitly supplied key disables the environment fallback entirely, so an
+// empty one is [ErrNoAPIKey] rather than a silent fall back.
+//
 // # Testing
 //
 // Package [github.com/anilsenay/jev/jevtest] provides a rule-based fake
